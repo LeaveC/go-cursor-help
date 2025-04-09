@@ -753,7 +753,6 @@ global.macMachineId = '${mac_machine_id}';
     show_follow_info() {
         echo
         echo -e "${GREEN}================================${NC}"
-        echo -e "${YELLOW}  关注公众号【煎饼果子卷AI】一起交流更多Cursor技巧和AI知识(脚本免费、关注公众号加群有更多技巧和大佬) ${NC}"
         echo -e "${YELLOW}  脚本由Neo优化，Wechat：Neo20250310 ${NC}"
         echo -e "${GREEN}================================${NC}"
         echo
@@ -1009,12 +1008,9 @@ global.macMachineId = '${mac_machine_id}';
         "
         echo -e "${BLUE}================================${NC}"
         echo -e "${GREEN}   Cursor 启动工具          ${NC}"
-        echo -e "${YELLOW}  关注公众号【煎饼果子卷AI】     ${NC}"
-        echo -e "${YELLOW}  一起交流更多Cursor技巧和AI知识(脚本免费、关注公众号加群有更多技巧和大佬)  ${NC}"
         echo -e "${BLUE}================================${NC}"
         echo
         echo -e "${YELLOW}[重要提示]${NC} 本工具优先修改js文件，更加安全可靠"
-        echo -e "${YELLOW}[重要提示]${NC} 本工具免费，如果对您有帮助，请关注公众号【煎饼果子卷AI】"
         echo
         
         # 执行主要功能
