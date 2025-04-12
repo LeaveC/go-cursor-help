@@ -476,6 +476,14 @@
                         grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
                         ((modified_count++))
                         log_info "成功修改文件: ${file/$temp_dir\//}"
+                    # 添加新版本的替换方案    
+                    elif sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${p}`)/i.header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${v}`)/' "$file"; then
+                        log_info "成功修改新版本 x-cursor-checksum 设置代码"
+                        echo "[SUCCESS] 成功完成新版本 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
+                        # 记录修改后的行
+                        grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
+                        ((modified_count++))
+                        log_info "成功修改文件: ${file/$temp_dir\//}"
                     else
                         log_error "修改 x-cursor-checksum 设置代码失败"
                         echo "[ERROR] 替换 x-cursor-checksum 设置代码失败" >> "$LOG_FILE"
@@ -1123,4 +1131,3 @@ global.macMachineId = '${mac_machine_id}';
 
     # 执行主函数
     main
-
