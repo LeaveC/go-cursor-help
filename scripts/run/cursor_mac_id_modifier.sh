@@ -477,9 +477,33 @@
                         ((modified_count++))
                         log_info "成功修改文件: ${file/$temp_dir\//}"
                     # 添加新版本的替换方案    
-                    elif sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${e}`)/i.header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${v}`)/' "$file"; then
+                    elif sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${p}`)/i.header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${v}`)/' "$file"; then
                         log_info "成功修改新版本 x-cursor-checksum 设置代码"
                         echo "[SUCCESS] 成功完成新版本 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
+                        # 记录修改后的行
+                        grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
+                        ((modified_count++))
+                        log_info "成功修改文件: ${file/$temp_dir\//}"
+                    # 添加实际发现的代码模式替换方案
+                    elif sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${e}`)/i.header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${v}`)/' "$file"; then
+                        log_info "成功修改最新版本 x-cursor-checksum 设置代码"
+                        echo "[SUCCESS] 成功完成最新版本 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
+                        # 记录修改后的行
+                        grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
+                        ((modified_count++))
+                        log_info "成功修改文件: ${file/$temp_dir\//}"
+                    # 添加通用替换方案，匹配更多可能的变体
+                    elif sed -i.tmp 's/header\.set("x-cursor-checksum",[^{]*`\${[a-zA-Z0-9_$]*}\${[a-zA-Z0-9_$]*}`:`\${[a-zA-Z0-9_$]*}\${[a-zA-Z0-9_$]*}\/\${[a-zA-Z0-9_$]*}`.*/header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${v}`)/' "$file"; then
+                        log_info "使用通用正则表达式成功修改 x-cursor-checksum 设置代码"
+                        echo "[SUCCESS] 成功使用通用正则表达式替换 x-cursor-checksum 设置代码" >> "$LOG_FILE"
+                        # 记录修改后的行
+                        grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
+                        ((modified_count++))
+                        log_info "成功修改文件: ${file/$temp_dir\//}"
+                    # 尝试更强大的自动适应方法
+                    elif try_adaptive_replacement "$file"; then
+                        log_info "使用自适应替换方法成功修改 x-cursor-checksum 设置代码"
+                        echo "[SUCCESS] 成功使用自适应替换方法修改 x-cursor-checksum 设置代码" >> "$LOG_FILE"
                         # 记录修改后的行
                         grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
                         ((modified_count++))
@@ -487,6 +511,14 @@
                     else
                         log_error "修改 x-cursor-checksum 设置代码失败"
                         echo "[ERROR] 替换 x-cursor-checksum 设置代码失败" >> "$LOG_FILE"
+                        
+                        # 记录实际的代码模式到日志，帮助诊断问题
+                        echo "[DIAGNOSTIC] 查找 x-cursor-checksum 相关行内容:" >> "$LOG_FILE"
+                        grep -n "header.set(\"x-cursor-checksum\"" "$file" | head -5 >> "$LOG_FILE"
+                        # 尝试提取变量名称
+                        echo "[DIAGNOSTIC] 提取变量名称:" >> "$LOG_FILE"
+                        grep -n "header.set(\"x-cursor-checksum\"" "$file" | sed -E 's/.*(\$\{[^}]+\}).*/\1/g' | head -5 >> "$LOG_FILE"
+                        
                         cp "${file}.bak" "$file"
                     fi
                 else
@@ -982,6 +1014,78 @@ global.macMachineId = '${mac_machine_id}';
                 fi
             done
         done
+    }
+
+    # 新增自适应替换函数，尝试自动检测和处理各种混淆模式
+    try_adaptive_replacement() {
+        local file="$1"
+        log_debug "尝试自适应替换方法"
+        echo "[ADAPTIVE] 开始自适应替换" >> "$LOG_FILE"
+        
+        # 创建临时备份
+        cp "$file" "${file}.adaptive_bak"
+        
+        # 1. 提取 x-cursor-checksum 设置行
+        local checksum_line=$(grep -n "header.set(\"x-cursor-checksum\"" "$file" | head -1)
+        if [ -z "$checksum_line" ]; then
+            log_warn "自适应替换: 未找到 x-cursor-checksum 设置行"
+            echo "[ADAPTIVE] 未找到 x-cursor-checksum 设置行" >> "$LOG_FILE"
+            return 1
+        fi
+        
+        # 记录找到的行
+        echo "[ADAPTIVE] 找到 checksum 行: $checksum_line" >> "$LOG_FILE"
+        
+        # 2. 提取行号
+        local line_num=$(echo "$checksum_line" | cut -d':' -f1)
+        
+        # 3. 提取该行内容
+        local line_content=$(echo "$checksum_line" | cut -d':' -f2-)
+        echo "[ADAPTIVE] 行内容: $line_content" >> "$LOG_FILE"
+        
+        # 4. 分析变量模式 - 查找形如 ${X} 的模式
+        local vars=($(echo "$line_content" | grep -o '\${[a-zA-Z0-9_$]*}' | sort | uniq))
+        echo "[ADAPTIVE] 找到变量: ${vars[*]}" >> "$LOG_FILE"
+        
+        # 如果找不到足够的变量，则返回失败
+        if [ ${#vars[@]} -lt 3 ]; then
+            log_warn "自适应替换: 找不到足够的变量模式"
+            echo "[ADAPTIVE] 找不到足够的变量模式" >> "$LOG_FILE"
+            return 1
+        fi
+        
+        # 5. 确定模板中的变量位置
+        local last_var="${vars[${#vars[@]}-1]}"
+        echo "[ADAPTIVE] 最后一个变量: $last_var" >> "$LOG_FILE"
+        
+        # 6. 构造新的替换字符串，将最后一个变量替换为第一个变量
+        local first_var="${vars[0]}"
+        echo "[ADAPTIVE] 第一个变量: $first_var" >> "$LOG_FILE"
+        
+        # 构造替换模式，将最后一个变量替换为第一个
+        local new_line="${line_content/$last_var/$first_var}"
+        echo "[ADAPTIVE] 新行内容: $new_line" >> "$LOG_FILE"
+        
+        # 7. 执行替换
+        sed -i.tmp "${line_num}s|.*|${new_line}|" "$file"
+        
+        # 8. 验证替换结果
+        local new_content=$(sed -n "${line_num}p" "$file")
+        echo "[ADAPTIVE] 替换后内容: $new_content" >> "$LOG_FILE"
+        
+        # 检查替换是否成功
+        if grep -q "$first_var.*$first_var" <(echo "$new_content"); then
+            log_info "自适应替换: 成功将变量 $last_var 替换为 $first_var"
+            echo "[ADAPTIVE] 替换成功" >> "$LOG_FILE"
+            rm -f "${file}.adaptive_bak"
+            return 0
+        else
+            log_warn "自适应替换: 替换未达到预期效果"
+            echo "[ADAPTIVE] 替换未达到预期效果，恢复备份" >> "$LOG_FILE"
+            cp "${file}.adaptive_bak" "$file"
+            rm -f "${file}.adaptive_bak"
+            return 1
+        fi
     }
 
     # 主函数
