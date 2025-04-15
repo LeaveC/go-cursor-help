@@ -469,7 +469,7 @@
                     grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
                     
                     # 执行特定的替换
-                    if sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${p}${t}`:`${p}${t}\/${e}`)/i.header.set("x-cursor-checksum",e===void 0?`${p}${t}`:`${p}${t}\/${p}`)/' "$file"; then
+                    if sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${e}`)/i.header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${v}\/${v}`)/' "$file"; then
                         log_info "成功修改 x-cursor-checksum 设置代码"
                         echo "[SUCCESS] 成功完成 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
                         # 记录修改后的行
