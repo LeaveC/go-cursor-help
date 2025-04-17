@@ -493,7 +493,7 @@
                         ((modified_count++))
                         log_info "成功修改文件: ${file/$temp_dir\//}"
                     # 添加通用替换方案，匹配更多可能的变体
-                    elif sed -i.tmp 's/header\.set("x-cursor-checksum",[^{]*`\${[a-zA-Z0-9_$]*}\${[a-zA-Z0-9_$]*}`:`\${[a-zA-Z0-9_$]*}\${[a-zA-Z0-9_$]*}\/\${[a-zA-Z0-9_$]*}`.*/header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}\/${v}`)/' "$file"; then
+                    elif sed -i.tmp 's/header\.set("x-cursor-checksum",[^{]*`\${[a-zA-Z0-9_$]*}\${[a-zA-Z0-9_$]*}`:`\${[a-zA-Z0-9_$]*}\${[a-zA-Z0-9_$]*}\/\${[a-zA-Z0-9_$]*}`.*/header.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${v}\/${v}`)/' "$file"; then
                         log_info "使用通用正则表达式成功修改 x-cursor-checksum 设置代码"
                         echo "[SUCCESS] 成功使用通用正则表达式替换 x-cursor-checksum 设置代码" >> "$LOG_FILE"
                         # 记录修改后的行
