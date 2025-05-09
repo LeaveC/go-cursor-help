@@ -496,8 +496,17 @@ modify_cursor_app_files() {
                 # 记录匹配的行到日志
                 grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
                 
-                # 执行特定的替换
-                if sed -i.tmp 's/i\.header\.set("x-cursor-checksum",e===void 0?`${p}${t}`:`${p}${t}\/${e}`)/i.header.set("x-cursor-checksum",e===void 0?`${p}${t}`:`${p}${t}\/${p}`)/' "$file"; then
+                # 生成随机UUID和短UUID
+                local random_uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
+                local short_uuid=$(echo $random_uuid | cut -d'-' -f1,2,3)
+                
+                log_debug "生成随机UUID: $random_uuid"
+                log_debug "生成短UUID: $short_uuid"
+                echo "[UUID] 生成随机UUID: $random_uuid" >> "$LOG_FILE"
+                echo "[UUID] 生成短UUID: $short_uuid" >> "$LOG_FILE"
+                
+                # 执行特定的替换 - 修改为用户要求的格式
+                if sed -i.tmp "s/i\\.header\\.set(\"x-cursor-checksum\",e===void 0?\\`\${v}\${t}\\`:\\`\${v}\${t}\\\\/\${e}\\`)/i.header.set(\"x-cursor-checksum\",e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
                     log_info "成功修改 x-cursor-checksum 设置代码"
                     echo "[SUCCESS] 成功完成 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
                     # 记录修改后的行
@@ -505,9 +514,21 @@ modify_cursor_app_files() {
                     ((modified_count++))
                     log_info "成功修改文件: ${file/$temp_dir\//}"
                 else
-                    log_error "修改 x-cursor-checksum 设置代码失败"
-                    echo "[ERROR] 替换 x-cursor-checksum 设置代码失败" >> "$LOG_FILE"
-                    cp "${file}.bak" "$file"
+                    log_error "修改 x-cursor-checksum 设置代码失败，尝试备用模式..."
+                    echo "[ERROR] 第一种替换模式失败，尝试备用模式" >> "$LOG_FILE"
+                    
+                    # 尝试备用替换模式，有些版本可能格式略有不同
+                    if sed -i.tmp "s/i\\.header\\.set(\"x-cursor-checksum\",e===void 0?\\`\${v}\${t}\\`:\\`\${v}\${t}\\\\/\${p}\\`)/i.header.set(\"x-cursor-checksum\",e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
+                        log_info "使用备用模式成功修改 x-cursor-checksum 设置代码"
+                        echo "[SUCCESS] 使用备用模式成功完成 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
+                        grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
+                        ((modified_count++))
+                        log_info "成功修改文件: ${file/$temp_dir\//}"
+                    else
+                        log_error "所有替换模式均失败"
+                        echo "[ERROR] 所有替换模式均失败，恢复原始文件" >> "$LOG_FILE"
+                        cp "${file}.bak" "$file"
+                    fi
                 fi
             else
                 log_warn "未找到 x-cursor-checksum 设置代码"
@@ -519,6 +540,58 @@ modify_cursor_app_files() {
                 
                 echo "[FILE_CONTENT] 文件中包含 'checksum' 的行:" >> "$LOG_FILE"
                 grep -n "checksum" "$file" | head -20 >> "$LOG_FILE"
+                
+                # 尝试更通用的替换方法
+                if grep -q "header.set.*checksum" "$file"; then
+                    log_info "找到可能的checksum设置代码，尝试通用替换"
+                    
+                    # 生成随机UUID和短UUID
+                    local random_uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
+                    local short_uuid=$(echo $random_uuid | cut -d'-' -f1,2,3)
+                    
+                    log_debug "生成随机UUID: $random_uuid"
+                    log_debug "生成短UUID: $short_uuid"
+                    echo "[UUID] 通用模式生成随机UUID: $random_uuid" >> "$LOG_FILE"
+                    echo "[UUID] 通用模式生成短UUID: $short_uuid" >> "$LOG_FILE"
+                    
+                    # 尝试三种可能的替换模式
+                    local matched=false
+                    
+                    # 模式1: header.set("x-cursor-checksum", 标准双参数格式
+                    if grep -q 'header.set("x-cursor-checksum",' "$file" && ! $matched; then
+                        if sed -i.tmp "s/header\\.set(\"x-cursor-checksum\",\\([^)]*\\))/header.set(\"x-cursor-checksum\",e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
+                            log_info "使用通用模式1成功修改 checksum 设置代码"
+                            matched=true
+                        fi
+                    fi
+                    
+                    # 模式2: header.set('x-cursor-checksum', 单引号格式
+                    if grep -q "header.set('x-cursor-checksum'," "$file" && ! $matched; then
+                        if sed -i.tmp "s/header\\.set('x-cursor-checksum',\\([^)]*\\))/header.set('x-cursor-checksum',e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
+                            log_info "使用通用模式2成功修改 checksum 设置代码"
+                            matched=true
+                        fi
+                    fi
+                    
+                    # 模式3: 最通用的任何包含checksum的header.set
+                    if ! $matched; then
+                        if sed -i.tmp "s/\\(header\\.set[^,]*,\\)\\([^)]*\\))/\\1e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
+                            log_info "使用最通用模式成功修改 checksum 设置代码"
+                            matched=true
+                        fi
+                    fi
+                    
+                    if $matched; then
+                        ((modified_count++))
+                        log_info "成功使用通用方法修改文件: ${file/$temp_dir\//}"
+                        echo "[SUCCESS] 使用通用方法成功完成 checksum 设置代码替换" >> "$LOG_FILE"
+                        # 记录修改后的行
+                        grep -n "header.set.*checksum" "$file" | head -3 >> "$LOG_FILE"
+                    else
+                        log_error "所有通用替换模式均失败"
+                        echo "[ERROR] 所有通用替换模式均失败" >> "$LOG_FILE"
+                    fi
+                fi
             fi
             
             echo "[PROCESS_DETAIL] 完成处理 extensionHostProcess.js 文件" >> "$LOG_FILE"
@@ -1147,4 +1220,3 @@ main() {
 
 # 执行主函数
 main
-
