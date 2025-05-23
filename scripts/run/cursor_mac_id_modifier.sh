@@ -1017,60 +1017,103 @@ select_menu_option() {
     local cursor_down='\033[B'
     local enter_key=$'\n'
     
-    # 保存光标位置
-    tput sc
+    # 检测是否在管道环境中执行
+    local is_piped=false
+    if [ ! -t 0 ]; then
+        is_piped=true
+        log_warn "检测到管道执行环境，将使用默认选择"
+    fi
     
     # 显示提示信息
     echo -e "$prompt"
     
-    # 第一次显示菜单
+    # 显示所有选项
     for i in "${!options[@]}"; do
         if [ $i -eq $selected_index ]; then
-            echo -e " ${GREEN}►${NC} ${options[$i]}"
+            echo -e " ${GREEN}►${NC} ${options[$i]} ${YELLOW}(默认)${NC}"
         else
             echo -e "   ${options[$i]}"
         fi
     done
     
+    # 如果在管道环境中，直接使用默认选择
+    if [ "$is_piped" = true ]; then
+        echo
+        log_info "管道环境下自动选择默认选项: ${options[$selected_index]}"
+        return $selected_index
+    fi
+    
+    # 保存光标位置
+    tput sc
+    
     # 循环处理键盘输入
-    while true; do
-        # 读取单个按键
-        read -rsn3 key_input
-        
-        # 检测按键
-        case "$key_input" in
-            # 上箭头键
-            $'\033[A')
-                if [ $selected_index -gt 0 ]; then
-                    ((selected_index--))
+    local timeout_count=0
+    local max_timeout=30  # 30秒超时
+    
+    while [ $timeout_count -lt $max_timeout ]; do
+        # 读取单个按键，设置1秒超时
+        if read -rsn1 -t 1 key_input; then
+            # 重置超时计数
+            timeout_count=0
+            
+            # 检测特殊键序列
+            case "$key_input" in
+                $'\033')
+                    # ESC序列，读取后续字符
+                    read -rsn2 -t 0.1 key_input
+                    case "$key_input" in
+                        '[A')  # 上箭头
+                            if [ $selected_index -gt 0 ]; then
+                                ((selected_index--))
+                            fi
+                            ;;
+                        '[B')  # 下箭头
+                            if [ $selected_index -lt $((${#options[@]}-1)) ]; then
+                                ((selected_index++))
+                            fi
+                            ;;
+                    esac
+                    ;;
+                '')  # Enter键
+                    echo
+                    log_info "您选择了: ${options[$selected_index]}"
+                    return $selected_index
+                    ;;
+                'q'|'Q')  # 退出键
+                    echo
+                    log_info "用户选择退出，使用默认选项: ${options[$default_index]}"
+                    return $default_index
+                    ;;
+                [0-9])  # 数字键直接选择
+                    local num_choice=$((key_input))
+                    if [ $num_choice -ge 0 ] && [ $num_choice -lt ${#options[@]} ]; then
+                        selected_index=$num_choice
+                        echo
+                        log_info "您选择了: ${options[$selected_index]}"
+                        return $selected_index
+                    fi
+                    ;;
+            esac
+            
+            # 恢复光标位置并重新显示菜单
+            tput rc
+            for i in "${!options[@]}"; do
+                if [ $i -eq $selected_index ]; then
+                    echo -e " ${GREEN}►${NC} ${options[$i]}"
+                else
+                    echo -e "   ${options[$i]}"
                 fi
-                ;;
-            # 下箭头键
-            $'\033[B')
-                if [ $selected_index -lt $((${#options[@]}-1)) ]; then
-                    ((selected_index++))
-                fi
-                ;;
-            # Enter键
-            "")
-                echo # 换行
-                log_info "您选择了: ${options[$selected_index]}"
-                return $selected_index
-                ;;
-        esac
-        
-        # 恢复光标位置
-        tput rc
-        
-        # 重新显示菜单
-        for i in "${!options[@]}"; do
-            if [ $i -eq $selected_index ]; then
-                echo -e " ${GREEN}►${NC} ${options[$i]}"
-            else
-                echo -e "   ${options[$i]}"
-            fi
-        done
+            done
+        else
+            # 超时计数
+            ((timeout_count++))
+        fi
     done
+    
+    # 超时后使用默认选择
+    echo
+    log_warn "输入超时，使用默认选项: ${options[$default_index]}"
+    return $default_index
 }
 
 # 主函数
