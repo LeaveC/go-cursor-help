@@ -505,30 +505,75 @@ modify_cursor_app_files() {
                 echo "[UUID] 生成随机UUID: $random_uuid" >> "$LOG_FILE"
                 echo "[UUID] 生成短UUID: $short_uuid" >> "$LOG_FILE"
                 
-                # 执行特定的替换 - 修改为用户要求的格式
-                if sed -i.tmp "s/i\\.header\\.set(\"x-cursor-checksum\",e===void 0?\\`\${v}\${t}\\`:\\`\${v}\${t}\\\\/\${e}\\`)/i.header.set(\"x-cursor-checksum\",e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
-                    log_info "成功修改 x-cursor-checksum 设置代码"
+                # 使用更安全的替换方法 - 分步骤进行
+                local temp_replacement_file="${file}.replacement"
+                local success=false
+                
+                # 方法1: 尝试标准格式替换
+                if grep -q 'i\.header\.set("x-cursor-checksum",e===void 0?`${v}${t}`:`${v}${t}/${e}`)' "$file"; then
+                    log_debug "尝试标准格式替换..."
+                    # 使用 perl 进行更精确的替换
+                    if perl -pe "s/i\\.header\\.set\\(\"x-cursor-checksum\",e===void 0\\?\\`\\\$\\{v\\}\\\$\\{t\\}\\`:\\`\\\$\\{v\\}\\\$\\{t\\}\\\\\\/\\\$\\{e\\}\\`\\)/i.header.set(\"x-cursor-checksum\",e===void 0?\\`\\\$\\{v\\}$short_uuid\\`:\\`\\\$\\{v\\}:$random_uuid\\/$short_uuid\\`)/g" "$file" > "$temp_replacement_file" 2>/dev/null; then
+                        if [ -s "$temp_replacement_file" ] && ! cmp -s "$file" "$temp_replacement_file"; then
+                            mv "$temp_replacement_file" "$file"
+                            success=true
+                            log_info "使用标准格式成功修改 x-cursor-checksum 设置代码"
+                        fi
+                    fi
+                fi
+                
+                # 方法2: 如果方法1失败，尝试更通用的替换
+                if [ "$success" = false ]; then
+                    log_debug "尝试通用格式替换..."
+                    # 查找并替换任何包含 x-cursor-checksum 的 header.set 调用
+                    if grep -q 'header\.set.*x-cursor-checksum' "$file"; then
+                        # 使用 awk 进行更精确的处理
+                        awk -v uuid="$random_uuid" -v short="$short_uuid" '
+                        {
+                            if (/header\.set.*x-cursor-checksum/) {
+                                # 替换整个 header.set 调用
+                                gsub(/header\.set\("x-cursor-checksum",[^)]*\)/, "header.set(\"x-cursor-checksum\",e===void 0?`${v}" short "`:`${v}:" uuid "/" short "`)")
+                            }
+                            print
+                        }' "$file" > "$temp_replacement_file"
+                        
+                        if [ -s "$temp_replacement_file" ] && ! cmp -s "$file" "$temp_replacement_file"; then
+                            mv "$temp_replacement_file" "$file"
+                            success=true
+                            log_info "使用通用格式成功修改 x-cursor-checksum 设置代码"
+                        fi
+                    fi
+                fi
+                
+                # 方法3: 如果前面都失败，使用最简单的字符串替换
+                if [ "$success" = false ]; then
+                    log_debug "尝试简单字符串替换..."
+                    # 查找包含 checksum 的行并进行简单替换
+                    if grep -q 'checksum.*\${v}' "$file"; then
+                        # 使用 sed 进行简单的模式替换
+                        sed "s/\${v}\${t}/\${v}$short_uuid/g; s/\${v}\${t}\/\${e}/\${v}:$random_uuid\/$short_uuid/g" "$file" > "$temp_replacement_file"
+                        
+                        if [ -s "$temp_replacement_file" ] && ! cmp -s "$file" "$temp_replacement_file"; then
+                            mv "$temp_replacement_file" "$file"
+                            success=true
+                            log_info "使用简单替换成功修改 x-cursor-checksum 设置代码"
+                        fi
+                    fi
+                fi
+                
+                # 清理临时文件
+                rm -f "$temp_replacement_file"
+                
+                if [ "$success" = true ]; then
                     echo "[SUCCESS] 成功完成 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
                     # 记录修改后的行
                     grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
                     ((modified_count++))
                     log_info "成功修改文件: ${file/$temp_dir\//}"
                 else
-                    log_error "修改 x-cursor-checksum 设置代码失败，尝试备用模式..."
-                    echo "[ERROR] 第一种替换模式失败，尝试备用模式" >> "$LOG_FILE"
-                    
-                    # 尝试备用替换模式，有些版本可能格式略有不同
-                    if sed -i.tmp "s/i\\.header\\.set(\"x-cursor-checksum\",e===void 0?\\`\${v}\${t}\\`:\\`\${v}\${t}\\\\/\${e}\\`)/i.header.set(\"x-cursor-checksum\",e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
-                        log_info "使用备用模式成功修改 x-cursor-checksum 设置代码"
-                        echo "[SUCCESS] 使用备用模式成功完成 x-cursor-checksum 设置代码替换" >> "$LOG_FILE"
-                        grep -n 'i.header.set("x-cursor-checksum' "$file" >> "$LOG_FILE"
-                        ((modified_count++))
-                        log_info "成功修改文件: ${file/$temp_dir\//}"
-                    else
-                        log_error "所有替换模式均失败"
-                        echo "[ERROR] 所有替换模式均失败，恢复原始文件" >> "$LOG_FILE"
-                        cp "${file}.bak" "$file"
-                    fi
+                    log_error "所有替换方法均失败"
+                    echo "[ERROR] 所有替换方法均失败，恢复原始文件" >> "$LOG_FILE"
+                    cp "${file}.bak" "$file"
                 fi
             else
                 log_warn "未找到 x-cursor-checksum 设置代码"
@@ -554,42 +599,37 @@ modify_cursor_app_files() {
                     echo "[UUID] 通用模式生成随机UUID: $random_uuid" >> "$LOG_FILE"
                     echo "[UUID] 通用模式生成短UUID: $short_uuid" >> "$LOG_FILE"
                     
-                    # 尝试三种可能的替换模式
+                    # 使用更安全的通用替换
+                    local temp_replacement_file="${file}.replacement"
                     local matched=false
                     
-                    # 模式1: header.set("x-cursor-checksum", 标准双参数格式
-                    if grep -q 'header.set("x-cursor-checksum",' "$file" && ! $matched; then
-                        if sed -i.tmp "s/header\\.set(\"x-cursor-checksum\",\\([^)]*\\))/header.set(\"x-cursor-checksum\",e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
-                            log_info "使用通用模式1成功修改 checksum 设置代码"
-                            matched=true
-                        fi
-                    fi
+                    # 尝试替换任何包含 checksum 的 header.set 调用
+                    awk -v uuid="$random_uuid" -v short="$short_uuid" '
+                    {
+                        if (/header\.set.*checksum/) {
+                            # 简单替换为固定格式
+                            gsub(/header\.set\([^,]*checksum[^)]*\)/, "header.set(\"x-cursor-checksum\",e===void 0?`${v}" short "`:`${v}:" uuid "/" short "`)")
+                            matched = 1
+                        }
+                        print
+                    }
+                    END {
+                        if (matched) exit 0
+                        else exit 1
+                    }' "$file" > "$temp_replacement_file"
                     
-                    # 模式2: header.set('x-cursor-checksum', 单引号格式
-                    if grep -q "header.set('x-cursor-checksum'," "$file" && ! $matched; then
-                        if sed -i.tmp "s/header\\.set('x-cursor-checksum',\\([^)]*\\))/header.set('x-cursor-checksum',e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
-                            log_info "使用通用模式2成功修改 checksum 设置代码"
-                            matched=true
-                        fi
-                    fi
-                    
-                    # 模式3: 最通用的任何包含checksum的header.set
-                    if ! $matched; then
-                        if sed -i.tmp "s/\\(header\\.set[^,]*,\\)\\([^)]*\\))/\\1e===void 0?\\`\${v}${short_uuid}\\`:\\`\${v}:${random_uuid}\\/$(echo $short_uuid)\\`)/" "$file"; then
-                            log_info "使用最通用模式成功修改 checksum 设置代码"
-                            matched=true
-                        fi
-                    fi
-                    
-                    if $matched; then
-                        ((modified_count++))
-                        log_info "成功使用通用方法修改文件: ${file/$temp_dir\//}"
+                    if [ $? -eq 0 ] && [ -s "$temp_replacement_file" ] && ! cmp -s "$file" "$temp_replacement_file"; then
+                        mv "$temp_replacement_file" "$file"
+                        matched=true
+                        log_info "使用通用方法成功修改 checksum 设置代码"
                         echo "[SUCCESS] 使用通用方法成功完成 checksum 设置代码替换" >> "$LOG_FILE"
                         # 记录修改后的行
                         grep -n "header.set.*checksum" "$file" | head -3 >> "$LOG_FILE"
+                        ((modified_count++))
                     else
-                        log_error "所有通用替换模式均失败"
-                        echo "[ERROR] 所有通用替换模式均失败" >> "$LOG_FILE"
+                        rm -f "$temp_replacement_file"
+                        log_error "通用替换方法失败"
+                        echo "[ERROR] 通用替换方法失败" >> "$LOG_FILE"
                     fi
                 fi
             fi
