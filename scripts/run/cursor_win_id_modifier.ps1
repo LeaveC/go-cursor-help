@@ -13,6 +13,70 @@ $NC = "`e[0m"
 $STORAGE_FILE = "$env:APPDATA\Cursor\User\globalStorage\storage.json"
 $BACKUP_DIR = "$env:APPDATA\Cursor\User\globalStorage\backups"
 
+# 新增 Cursor 初始化函数
+function Cursor-初始化 {
+    Write-Host "$GREEN[信息]$NC 正在执行 Cursor 初始化清理..."
+    $BASE_PATH = "$env:APPDATA\Cursor\User"
+
+    $filesToDelete = @(
+        (Join-Path -Path $BASE_PATH -ChildPath "globalStorage\\state.vscdb"),
+        (Join-Path -Path $BASE_PATH -ChildPath "globalStorage\\state.vscdb.backup")
+    )
+    
+    $folderToCleanContents = Join-Path -Path $BASE_PATH -ChildPath "History"
+    $folderToDeleteCompletely = Join-Path -Path $BASE_PATH -ChildPath "workspaceStorage"
+
+    Write-Host "$BLUE[调试]$NC 基础路径: $BASE_PATH"
+
+    # 删除指定文件
+    foreach ($file in $filesToDelete) {
+        Write-Host "$BLUE[调试]$NC 检查文件: $file"
+        if (Test-Path $file) {
+            try {
+                Remove-Item -Path $file -Force -ErrorAction Stop
+                Write-Host "$GREEN[成功]$NC 已删除文件: $file"
+            }
+            catch {
+                Write-Host "$RED[错误]$NC 删除文件 $file 失败: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Host "$YELLOW[警告]$NC 文件不存在，跳过删除: $file"
+        }
+    }
+
+    # 清空指定文件夹内容
+    Write-Host "$BLUE[调试]$NC 检查待清空文件夹: $folderToCleanContents"
+    if (Test-Path $folderToCleanContents) {
+        try {
+            # 获取子项进行删除，以避免删除 History 文件夹本身
+            Get-ChildItem -Path $folderToCleanContents -Recurse | Remove-Item -Recurse -Force -ErrorAction Stop
+            Write-Host "$GREEN[成功]$NC 已清空文件夹内容: $folderToCleanContents"
+        }
+        catch {
+            Write-Host "$RED[错误]$NC 清空文件夹 $folderToCleanContents 内容失败: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Host "$YELLOW[警告]$NC 文件夹不存在，跳过清空: $folderToCleanContents"
+    }
+
+    # 删除指定文件夹及其内容
+    Write-Host "$BLUE[调试]$NC 检查待删除文件夹: $folderToDeleteCompletely"
+    if (Test-Path $folderToDeleteCompletely) {
+        try {
+            Remove-Item -Path $folderToDeleteCompletely -Recurse -Force -ErrorAction Stop
+            Write-Host "$GREEN[成功]$NC 已删除文件夹: $folderToDeleteCompletely"
+        }
+        catch {
+            Write-Host "$RED[错误]$NC 删除文件夹 $folderToDeleteCompletely 失败: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Host "$YELLOW[警告]$NC 文件夹不存在，跳过删除: $folderToDeleteCompletely"
+    }
+
+    Write-Host "$GREEN[信息]$NC Cursor 初始化清理完成。"
+    Write-Host "" # 添加空行以改善输出格式
+}
+
 # 检查管理员权限
 function Test-Administrator {
     $user = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -23,7 +87,7 @@ function Test-Administrator {
 if (-not (Test-Administrator)) {
     Write-Host "$RED[错误]$NC 请以管理员身份运行此脚本"
     Write-Host "请右键点击脚本，选择'以管理员身份运行'"
-    # 移除交互式提示，直接退出
+    Read-Host "按回车键退出"
     exit 1
 }
 
@@ -40,15 +104,16 @@ Write-Host @"
 
 "@
 Write-Host "$BLUE================================$NC"
-Write-Host "$GREEN   Cursor 设备ID 修改工具 (自动版)    $NC"
-Write-Host "$BLUE================================$NC"
+Write-Host "$GREEN   Cursor 设备ID 修改工具          $NC"
+、Write-Host "$YELLOW  一起交流更多Cursor技巧和AI知识(脚本免费、关注公众号加群有更多技巧和大佬)  $NC"
+、Write-Host "$BLUE================================$NC"
 Write-Host ""
 
 # 获取并显示 Cursor 版本
 function Get-CursorVersion {
     try {
         # 主要检测路径
-        $packagePath = "$env:LOCALAPPDATA\Programs\cursor\resources\app\package.json"
+        $packagePath = "$env:LOCALAPPDATA\\Programs\\cursor\\resources\\app\\package.json"
         
         if (Test-Path $packagePath) {
             $packageJson = Get-Content $packagePath -Raw | ConvertFrom-Json
@@ -59,7 +124,7 @@ function Get-CursorVersion {
         }
 
         # 备用路径检测
-        $altPath = "$env:LOCALAPPDATA\cursor\resources\app\package.json"
+        $altPath = "$env:LOCALAPPDATA\\cursor\\resources\\app\\package.json"
         if (Test-Path $altPath) {
             $packageJson = Get-Content $altPath -Raw | ConvertFrom-Json
             if ($packageJson.version) {
@@ -82,7 +147,7 @@ function Get-CursorVersion {
 $cursorVersion = Get-CursorVersion
 Write-Host ""
 
-Write-Host "$YELLOW[重要提示]$NC 最新的 0.47.x (以支持)"
+Write-Host "$YELLOW[重要提示]$NC 最新的 0.50.x (以支持)"
 Write-Host ""
 
 # 检查并关闭 Cursor 进程
@@ -121,8 +186,8 @@ function Close-CursorProcess {
             if ($retryCount -ge $MAX_RETRIES) {
                 Write-Host "$RED[错误]$NC 在 $MAX_RETRIES 次尝试后仍无法关闭 $processName"
                 Get-ProcessDetails $processName
-                Write-Host "$RED[错误]$NC 无法自动关闭进程，请确保 Cursor 已完全关闭后重新运行此脚本"
-                # 移除交互式提示，直接退出
+                Write-Host "$RED[错误]$NC 请手动关闭进程后重试"
+                Read-Host "按回车键退出"
                 exit 1
             }
             Write-Host "$YELLOW[警告]$NC 等待进程关闭，尝试 $retryCount/$MAX_RETRIES..."
@@ -135,6 +200,9 @@ function Close-CursorProcess {
 # 关闭所有 Cursor 进程
 Close-CursorProcess "Cursor"
 Close-CursorProcess "cursor"
+
+# 执行 Cursor 初始化清理
+Cursor-初始化
 
 # 创建备份目录
 if (-not (Test-Path $BACKUP_DIR)) {
@@ -266,7 +334,7 @@ function Update-MachineGuid {
             if ($restoreResult.ExitCode -eq 0) {
                 Write-Host "$GREEN[恢复成功]$NC 已还原原始注册表值"
             } else {
-                Write-Host "$RED[错误]$NC 恢复失败，无法恢复原始注册表值"
+                Write-Host "$RED[错误]$NC 恢复失败，请手动导入备份文件：$backupFile"
             }
         } else {
             Write-Host "$YELLOW[警告]$NC 未找到备份文件或备份创建失败，无法自动恢复"
@@ -283,7 +351,7 @@ try {
     if (-not (Test-Path $STORAGE_FILE)) {
         Write-Host "$RED[错误]$NC 未找到配置文件: $STORAGE_FILE"
         Write-Host "$YELLOW[提示]$NC 请先安装并运行一次 Cursor 后再使用此脚本"
-        # 移除交互式提示，直接退出
+        Read-Host "按回车键退出"
         exit 1
     }
 
@@ -358,43 +426,82 @@ try {
     # 显示公众号信息
     Write-Host ""
     Write-Host "$GREEN================================$NC"
-    Write-Host "$GREEN================================$NC"
+、    Write-Host "$GREEN================================$NC"
     Write-Host ""
     Write-Host "$GREEN[信息]$NC 请重启 Cursor 以应用新的配置"
     Write-Host ""
 
-    # 默认禁用自动更新，不询问用户
+    # 询问是否要禁用自动更新
     Write-Host ""
-    Write-Host "$GREEN[信息]$NC 正在禁用 Cursor 自动更新功能..."
-    $updaterPath = "$env:LOCALAPPDATA\cursor-updater"
+    Write-Host "$YELLOW[询问]$NC 是否要禁用 Cursor 自动更新功能？"
+    Write-Host "0) 否 - 保持默认设置 (按回车键)"
+    Write-Host "1) 是 - 禁用自动更新"
+    $choice = Read-Host "请输入选项 (0)"
 
-    try {
-        # 检查cursor-updater是否存在
-        if (Test-Path $updaterPath) {
-            # 如果是文件,说明已经创建了阻止更新
-            if ((Get-Item $updaterPath) -is [System.IO.FileInfo]) {
-                Write-Host "$GREEN[信息]$NC 已创建阻止更新文件,无需再次阻止"
-            }
-            # 如果是目录,尝试删除
-            else {
-                try {
-                    Remove-Item -Path $updaterPath -Force -Recurse -ErrorAction Stop
-                    Write-Host "$GREEN[信息]$NC 成功删除 cursor-updater 目录"
-                }
-                catch {
-                    Write-Host "$RED[错误]$NC 删除 cursor-updater 目录失败: $_"
-                }
-            }
+    if ($choice -eq "1") {
+        Write-Host ""
+        Write-Host "$GREEN[信息]$NC 正在处理自动更新..."
+        $updaterPath = "$env:LOCALAPPDATA\cursor-updater"
+
+        # 定义手动设置教程
+        function Show-ManualGuide {
+            Write-Host ""
+            Write-Host "$YELLOW[警告]$NC 自动设置失败,请尝试手动操作："
+            Write-Host "$YELLOW手动禁用更新步骤：$NC"
+            Write-Host "1. 以管理员身份打开 PowerShell"
+            Write-Host "2. 复制粘贴以下命令："
+            Write-Host "$BLUE命令1 - 删除现有目录（如果存在）：$NC"
+            Write-Host "Remove-Item -Path `"$updaterPath`" -Force -Recurse -ErrorAction SilentlyContinue"
+            Write-Host ""
+            Write-Host "$BLUE命令2 - 创建阻止文件：$NC"
+            Write-Host "New-Item -Path `"$updaterPath`" -ItemType File -Force | Out-Null"
+            Write-Host ""
+            Write-Host "$BLUE命令3 - 设置只读属性：$NC"
+            Write-Host "Set-ItemProperty -Path `"$updaterPath`" -Name IsReadOnly -Value `$true"
+            Write-Host ""
+            Write-Host "$BLUE命令4 - 设置权限（可选）：$NC"
+            Write-Host "icacls `"$updaterPath`" /inheritance:r /grant:r `"`$($env:USERNAME):(R)`""
+            Write-Host ""
+            Write-Host "$YELLOW验证方法：$NC"
+            Write-Host "1. 运行命令：Get-ItemProperty `"$updaterPath`""
+            Write-Host "2. 确认 IsReadOnly 属性为 True"
+            Write-Host "3. 运行命令：icacls `"$updaterPath`""
+            Write-Host "4. 确认只有读取权限"
+            Write-Host ""
+            Write-Host "$YELLOW[提示]$NC 完成后请重启 Cursor"
         }
 
-        # 创建阻止文件
-        if (-not (Test-Path $updaterPath) -or -not ((Get-Item $updaterPath) -is [System.IO.FileInfo])) {
+        try {
+            # 检查cursor-updater是否存在
+            if (Test-Path $updaterPath) {
+                # 如果是文件,说明已经创建了阻止更新
+                if ((Get-Item $updaterPath) -is [System.IO.FileInfo]) {
+                    Write-Host "$GREEN[信息]$NC 已创建阻止更新文件,无需再次阻止"
+                    return
+                }
+                # 如果是目录,尝试删除
+                else {
+                    try {
+                        Remove-Item -Path $updaterPath -Force -Recurse -ErrorAction Stop
+                        Write-Host "$GREEN[信息]$NC 成功删除 cursor-updater 目录"
+                    }
+                    catch {
+                        Write-Host "$RED[错误]$NC 删除 cursor-updater 目录失败"
+                        Show-ManualGuide
+                        return
+                    }
+                }
+            }
+
+            # 创建阻止文件
             try {
                 New-Item -Path $updaterPath -ItemType File -Force -ErrorAction Stop | Out-Null
                 Write-Host "$GREEN[信息]$NC 成功创建阻止文件"
             }
             catch {
-                Write-Host "$RED[错误]$NC 创建阻止文件失败: $_"
+                Write-Host "$RED[错误]$NC 创建阻止文件失败"
+                Show-ManualGuide
+                return
             }
 
             # 设置文件权限
@@ -411,26 +518,39 @@ try {
                 Write-Host "$GREEN[信息]$NC 成功设置文件权限"
             }
             catch {
-                Write-Host "$RED[错误]$NC 设置文件权限失败: $_"
+                Write-Host "$RED[错误]$NC 设置文件权限失败"
+                Show-ManualGuide
+                return
             }
-        }
 
-        # 验证设置
-        try {
-            $fileInfo = Get-ItemProperty $updaterPath -ErrorAction SilentlyContinue
-            if ($fileInfo -and $fileInfo.IsReadOnly) {
-                Write-Host "$GREEN[信息]$NC 成功禁用自动更新"
-            } else {
-                Write-Host "$YELLOW[警告]$NC 文件权限设置可能未生效，但已尝试禁用更新"
+            # 验证设置
+            try {
+                $fileInfo = Get-ItemProperty $updaterPath
+                if (-not $fileInfo.IsReadOnly) {
+                    Write-Host "$RED[错误]$NC 验证失败：文件权限设置可能未生效"
+                    Show-ManualGuide
+                    return
+                }
             }
+            catch {
+                Write-Host "$RED[错误]$NC 验证设置失败"
+                Show-ManualGuide
+                return
+            }
+
+            Write-Host "$GREEN[信息]$NC 成功禁用自动更新"
         }
         catch {
-            Write-Host "$YELLOW[警告]$NC 验证设置失败: $_"
+            Write-Host "$RED[错误]$NC 发生未知错误: $_"
+            Show-ManualGuide
         }
     }
-    catch {
-        Write-Host "$RED[错误]$NC 禁用自动更新时发生错误: $_"
+    else {
+        Write-Host "$GREEN[信息]$NC 保持默认设置，不进行更改"
     }
+
+    # 保留有效的注册表更新
+    Update-MachineGuid
 
 } catch {
     Write-Host "$RED[错误]$NC 主要操作失败: $_"
@@ -448,14 +568,13 @@ try {
         Write-Host "错误详情: $_"
         Write-Host "目标文件: $STORAGE_FILE"
         Write-Host "请确保您有足够的权限访问该文件"
-        # 移除交互式提示，直接退出
+        Read-Host "按回车键退出"
         exit 1
     }
 }
 
-# 移除交互式等待，直接退出
 Write-Host ""
-Write-Host "$GREEN[信息]$NC 操作完成，脚本已自动退出"
+Read-Host "按回车键退出"
 exit 0
 
 # 在文件写入部分修改
@@ -481,13 +600,4 @@ function Write-ConfigFile {
     catch {
         throw "写入配置文件失败: $_"
     }
-}
-
-# 获取并显示版本信息
-$cursorVersion = Get-CursorVersion
-Write-Host ""
-if ($cursorVersion) {
-    Write-Host "$GREEN[信息]$NC 检测到 Cursor 版本: $cursorVersion，继续执行..."
-} else {
-    Write-Host "$YELLOW[警告]$NC 无法检测版本，将继续执行..."
 } 
