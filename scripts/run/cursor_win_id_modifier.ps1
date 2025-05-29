@@ -18,10 +18,13 @@ function Cursor-初始化 {
     Write-Host "$GREEN[信息]$NC 正在执行 Cursor 初始化清理..."
     $BASE_PATH = "$env:APPDATA\Cursor\User"
 
+    # 只删除 state.vscdb.backup 文件
     $filesToDelete = @(
-        (Join-Path -Path $BASE_PATH -ChildPath "globalStorage\\state.vscdb"),
         (Join-Path -Path $BASE_PATH -ChildPath "globalStorage\\state.vscdb.backup")
     )
+    
+    # 处理 state.vscdb 文件 - 只清空 ItemTable 表
+    $stateDbPath = Join-Path -Path $BASE_PATH -ChildPath "globalStorage\\state.vscdb"
     
     $folderToCleanContents = Join-Path -Path $BASE_PATH -ChildPath "History"
     $folderToDeleteCompletely = Join-Path -Path $BASE_PATH -ChildPath "workspaceStorage"
@@ -42,6 +45,72 @@ function Cursor-初始化 {
         } else {
             Write-Host "$YELLOW[警告]$NC 文件不存在，跳过删除: $file"
         }
+    }
+
+    # 处理 state.vscdb 文件 - 只清空 ItemTable 表
+    Write-Host "$BLUE[调试]$NC 检查 state.vscdb 文件: $stateDbPath"
+    if (Test-Path $stateDbPath) {
+        try {
+            # 首先创建备份
+            $backupPath = "$stateDbPath.backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+            Copy-Item -Path $stateDbPath -Destination $backupPath -Force
+            Write-Host "$GREEN[信息]$NC 已备份 state.vscdb 到: $backupPath"
+            
+            # 使用 System.Data.SQLite 或者调用外部工具来操作 SQLite 数据库
+            # 尝试使用 sqlite3.exe (如果可用)
+            $sqliteCommand = "DELETE FROM ItemTable;"
+            
+            # 检查是否有 sqlite3.exe 可用
+            $sqlite3Path = Get-Command "sqlite3.exe" -ErrorAction SilentlyContinue
+            if ($sqlite3Path) {
+                Write-Host "$GREEN[信息]$NC 使用 sqlite3.exe 清空 ItemTable 表..."
+                $result = Start-Process -FilePath "sqlite3.exe" -ArgumentList "`"$stateDbPath`"", "`"$sqliteCommand`"" -Wait -NoNewWindow -PassThru
+                if ($result.ExitCode -eq 0) {
+                    Write-Host "$GREEN[成功]$NC 已清空 state.vscdb 中的 ItemTable 表"
+                } else {
+                    throw "sqlite3.exe 执行失败，退出代码: $($result.ExitCode)"
+                }
+            } else {
+                # 如果没有 sqlite3.exe，尝试使用 PowerShell 的 SQLite 模块
+                Write-Host "$YELLOW[警告]$NC 未找到 sqlite3.exe，尝试使用 PowerShell SQLite 功能..."
+                
+                # 尝试加载 System.Data.SQLite
+                try {
+                    Add-Type -AssemblyName "System.Data.SQLite" -ErrorAction Stop
+                    $connectionString = "Data Source=$stateDbPath;Version=3;"
+                    $connection = New-Object System.Data.SQLite.SQLiteConnection($connectionString)
+                    $connection.Open()
+                    
+                    $command = $connection.CreateCommand()
+                    $command.CommandText = "DELETE FROM ItemTable;"
+                    $rowsAffected = $command.ExecuteNonQuery()
+                    
+                    $connection.Close()
+                    $connection.Dispose()
+                    
+                    Write-Host "$GREEN[成功]$NC 已清空 state.vscdb 中的 ItemTable 表，影响行数: $rowsAffected"
+                } catch {
+                    Write-Host "$RED[错误]$NC System.Data.SQLite 不可用: $($_.Exception.Message)"
+                    Write-Host "$YELLOW[回退]$NC 将删除整个 state.vscdb 文件..."
+                    Remove-Item -Path $stateDbPath -Force -ErrorAction Stop
+                    Write-Host "$GREEN[成功]$NC 已删除 state.vscdb 文件"
+                }
+            }
+        }
+        catch {
+            Write-Host "$RED[错误]$NC 处理 state.vscdb 文件失败: $($_.Exception.Message)"
+            # 如果操作失败，尝试恢复备份
+            if (Test-Path $backupPath) {
+                try {
+                    Copy-Item -Path $backupPath -Destination $stateDbPath -Force
+                    Write-Host "$GREEN[恢复]$NC 已从备份恢复 state.vscdb 文件"
+                } catch {
+                    Write-Host "$RED[错误]$NC 恢复备份失败: $($_.Exception.Message)"
+                }
+            }
+        }
+    } else {
+        Write-Host "$YELLOW[警告]$NC state.vscdb 文件不存在，跳过处理"
     }
 
     # 清空指定文件夹内容
