@@ -59,22 +59,27 @@ function Cursor-初始化 {
             # 使用 System.Data.SQLite 或者调用外部工具来操作 SQLite 数据库
             # 尝试使用 sqlite3.exe (如果可用)
             $sqliteCommand = "DELETE FROM ItemTable;"
+            $operationSuccess = $false
             
-            # 检查是否有 sqlite3.exe 可用
+            # 方法1: 检查是否有 sqlite3.exe 可用
             $sqlite3Path = Get-Command "sqlite3.exe" -ErrorAction SilentlyContinue
             if ($sqlite3Path) {
                 Write-Host "$GREEN[信息]$NC 使用 sqlite3.exe 清空 ItemTable 表..."
                 $result = Start-Process -FilePath "sqlite3.exe" -ArgumentList "`"$stateDbPath`"", "`"$sqliteCommand`"" -Wait -NoNewWindow -PassThru
                 if ($result.ExitCode -eq 0) {
                     Write-Host "$GREEN[成功]$NC 已清空 state.vscdb 中的 ItemTable 表"
+                    $operationSuccess = $true
                 } else {
-                    throw "sqlite3.exe 执行失败，退出代码: $($result.ExitCode)"
+                    Write-Host "$RED[错误]$NC sqlite3.exe 执行失败，退出代码: $($result.ExitCode)"
                 }
             } else {
-                # 如果没有 sqlite3.exe，尝试使用 PowerShell 的 SQLite 模块
-                Write-Host "$YELLOW[警告]$NC 未找到 sqlite3.exe，尝试使用 PowerShell SQLite 功能..."
+                Write-Host "$YELLOW[信息]$NC 未找到 sqlite3.exe，尝试其他方法..."
+            }
+            
+            # 方法2: 如果 sqlite3.exe 失败，尝试使用 PowerShell 的 SQLite 模块
+            if (-not $operationSuccess) {
+                Write-Host "$YELLOW[信息]$NC 尝试使用 PowerShell SQLite 功能..."
                 
-                # 尝试加载 System.Data.SQLite
                 try {
                     Add-Type -AssemblyName "System.Data.SQLite" -ErrorAction Stop
                     $connectionString = "Data Source=$stateDbPath;Version=3;"
@@ -89,12 +94,71 @@ function Cursor-初始化 {
                     $connection.Dispose()
                     
                     Write-Host "$GREEN[成功]$NC 已清空 state.vscdb 中的 ItemTable 表，影响行数: $rowsAffected"
+                    $operationSuccess = $true
                 } catch {
                     Write-Host "$RED[错误]$NC System.Data.SQLite 不可用: $($_.Exception.Message)"
-                    Write-Host "$YELLOW[回退]$NC 将删除整个 state.vscdb 文件..."
-                    Remove-Item -Path $stateDbPath -Force -ErrorAction Stop
-                    Write-Host "$GREEN[成功]$NC 已删除 state.vscdb 文件"
                 }
+            }
+            
+            # 方法3: 尝试通过Windows PowerShell 5.1执行（如果当前是PowerShell 7+）
+            if (-not $operationSuccess -and $PSVersionTable.PSVersion.Major -gt 5) {
+                Write-Host "$YELLOW[信息]$NC 尝试使用 Windows PowerShell 5.1..."
+                try {
+                    $ps5Script = @"
+Add-Type -AssemblyName "System.Data.SQLite"
+`$connectionString = "Data Source=$stateDbPath;Version=3;"
+`$connection = New-Object System.Data.SQLite.SQLiteConnection(`$connectionString)
+`$connection.Open()
+`$command = `$connection.CreateCommand()
+`$command.CommandText = "DELETE FROM ItemTable;"
+`$rowsAffected = `$command.ExecuteNonQuery()
+`$connection.Close()
+`$connection.Dispose()
+Write-Output "SUCCESS:`$rowsAffected"
+"@
+                    $result = powershell.exe -Command $ps5Script
+                    if ($result -match "SUCCESS:(\d+)") {
+                        $rowsAffected = $matches[1]
+                        Write-Host "$GREEN[成功]$NC 已通过 PowerShell 5.1 清空 ItemTable 表，影响行数: $rowsAffected"
+                        $operationSuccess = $true
+                    }
+                } catch {
+                    Write-Host "$RED[错误]$NC PowerShell 5.1 方法失败: $($_.Exception.Message)"
+                }
+            }
+            
+            # 如果所有自动方法都失败，提供手动操作指导
+            if (-not $operationSuccess) {
+                Write-Host ""
+                Write-Host "$RED[失败]$NC 所有自动清空 ItemTable 的方法都失败了"
+                Write-Host "$YELLOW[手动操作指导]$NC 请按以下步骤手动清空 ItemTable："
+                Write-Host ""
+                Write-Host "$BLUE步骤1：$NC 下载 SQLite 工具"
+                Write-Host "   - 访问 https://sqlite.org/download.html"
+                Write-Host "   - 下载 'sqlite-tools-win32-x86' 或 'sqlite-tools-win64-x64'"
+                Write-Host "   - 解压到任意目录（如 C:\\sqlite）"
+                Write-Host ""
+                Write-Host "$BLUE步骤2：$NC 打开命令提示符"
+                Write-Host "   - 按 Win+R，输入 cmd，按回车"
+                Write-Host "   - 导航到 SQLite 工具目录"
+                Write-Host ""
+                Write-Host "$BLUE步骤3：$NC 执行清空命令"
+                Write-Host "   cd C:\\sqlite"
+                Write-Host "   sqlite3.exe `"$stateDbPath`" `"DELETE FROM ItemTable;`""
+                Write-Host ""
+                Write-Host "$BLUE步骤4：$NC 验证操作"
+                Write-Host "   sqlite3.exe `"$stateDbPath`" `"SELECT COUNT(*) FROM ItemTable;`""
+                Write-Host "   （应该返回 0）"
+                Write-Host ""
+                Write-Host "$GREEN[重要]$NC 备份文件已保存到："
+                Write-Host "   $backupPath"
+                Write-Host ""
+                Write-Host "$YELLOW[提示]$NC 如果手动操作失败，可以从备份文件恢复："
+                Write-Host "   copy `"$backupPath`" `"$stateDbPath`""
+                Write-Host ""
+                
+                # 不删除文件，保持原样
+                Write-Host "$YELLOW[跳过]$NC 保留原始 state.vscdb 文件，等待手动处理"
             }
         }
         catch {
